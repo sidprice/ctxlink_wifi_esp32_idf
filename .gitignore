@@ -1,0 +1,50 @@
+# ESP-IDF build output
+/build/
+*.bin
+*.elf
+*.map
+*.log
+*.pyc
+*.pyo
+*.swp
+*.swo
+*.swn
+*.bak
+*.tmp
+*.old
+*.orig
+*.rej
+*.o
+*.d
+*.a
+*.so
+*.exe
+*.out
+*.class
+*.DS_Store
+*.vscode/
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+build.ninja
+# Partition table
+partition_table/*.bin
+# ESP-IDF specific
+sdkconfig
+sdkconfig.old
+sdkconfig.ci
+sdkconfig.defaults
+sdkconfig.json
+sdkconfig.h
+sdkconfig.cmake
+# Python
+__pycache__/
+# VSCode
+.vscode/
+# Misc
+*.log
+*.env
+config.env
+# GDB
+.gdbinit/
