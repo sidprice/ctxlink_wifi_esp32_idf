@@ -281,14 +281,13 @@ void task_wifi(void *pvParameters)
 	//
 	wifi_comms_queue = xQueueCreate(wifi_comms_queue_length,
 		sizeof(uint8_t *)); // Create the queue for the SPI task
-	//
-	// TODO Get the wi-fi settings from preferences
-	//
+
 	memset(ssid, 0, MAX_SSID_LENGTH);
 	memset(password, 0, MAX_PASS_PHRASE_LENGTH);
-	strcpy(ssid, "Avian Ambassadors");
-	strcpy(password, "mijo498rocks");
-	// size_t settings_count = preferences_get_wifi_parameters(ssid, password);
+	preferences_init();
+	// strcpy(ssid, "Avian Ambassadors");
+	// strcpy(password, "mijo498rocks");
+	size_t settings_count = preferences_get_wifi_parameters(ssid, password);
 	MON_PRINTF(TAG, "SSID: %s", (char *)ssid);
 	MON_PRINTF(TAG, "Passphrase: %s", (char *)password);
 
