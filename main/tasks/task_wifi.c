@@ -163,6 +163,23 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
 		ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
 		ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
 		local_retry_count = 0;
+		//
+		// Update the current network information structure
+		//
+		memset(&network_info, 0, sizeof(network_connection_info_s));
+		MON_PRINTF(TAG, "Wi-Fi connected to SSID: %s", ssid);
+		strncpy(network_info.network_ssid, ssid, MAX_SSID_LENGTH);
+		network_info.type = PROTOCOL_PACKET_STATUS_TYPE_NETWORK_CLIENT;
+		network_info.connected = 0x01; // 0x01 = connected, 0x00 = disconnected
+		network_info.ip_address[0] = event->ip_info.ip.addr & 0xff;
+		network_info.ip_address[1] = (event->ip_info.ip.addr >> 8) & 0xff;
+		network_info.ip_address[2] = (event->ip_info.ip.addr >> 16) & 0xff;
+		network_info.ip_address[3] = (event->ip_info.ip.addr >> 24) & 0xff;
+		esp_read_mac(&network_info.mac_address[0], ESP_MAC_WIFI_STA);
+		wifi_ap_record_t ap_info;
+		if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+			network_info.rssi = ap_info.rssi;
+		}
 		xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
 	}
 }
@@ -303,26 +320,6 @@ void task_wifi(void *pvParameters)
 			switch (wifi_status) {
 			case WIFI_STATE_CONNECTED: {
 				MON(TAG, "Wi-Fi Connected");
-				//
-				// Update the current network information structure
-				//
-				memset(&network_info, 0, sizeof(network_connection_info_s));
-				MON_PRINTF(TAG, "Wi-Fi connected to SSID: %s", ssid);
-				strncpy(network_info.network_ssid, ssid, MAX_SSID_LENGTH);
-				network_info.type = PROTOCOL_PACKET_STATUS_TYPE_NETWORK_CLIENT;
-				network_info.connected = 0x01; // 0x01 = connected, 0x00 = disconnected
-				// network_info.ip_address[0] = (uint8_t)(WiFi.localIP()[0]);
-				// network_info.ip_address[1] = (uint8_t)(WiFi.localIP()[1]);
-				// network_info.ip_address[2] = (uint8_t)(WiFi.localIP()[2]);
-				// network_info.ip_address[3] = (uint8_t)(WiFi.localIP()[3]);
-				// network_info.mac_address[0] = (uint8_t)(WiFi.macAddress()[0]);
-				// network_info.mac_address[1] = (uint8_t)(WiFi.macAddress()[1]);
-				// network_info.mac_address[2] = (uint8_t)(WiFi.macAddress()[2]);
-				// network_info.mac_address[3] = (uint8_t)(WiFi.macAddress()[3]);
-				// network_info.mac_address[4] = (uint8_t)(WiFi.macAddress()[4]);
-				// network_info.mac_address[5] = (uint8_t)(WiFi.macAddress()[5]);
-				// network_info.rssi = (int8_t)(WiFi.RSSI());
-				//
 				uint8_t *message = get_next_spi_buffer();
 				memcpy(message, &network_info, sizeof(network_connection_info_s));
 				package_data(message, sizeof(network_connection_info_s), PROTOCOL_PACKET_TYPE_NETWORK_INFO);
