@@ -23,4 +23,9 @@
 		}                                                                                                 \
 	} while (0)
 
+#define FREERTOS_CHECK(x)           \
+	do {                            \
+		BaseType_t __result = (x);  \
+		assert(__result == pdTRUE); \
+	} while (0)
 #endif // CUSTOM_ASSERT_H

@@ -12,7 +12,6 @@
 #include <lwip/sockets.h>
 
 #include "protocol.h"
-#include "serial_control.h"
 #include "task_client.h"
 #include "task_server.h"
 #include "task_spi_comms.h"
@@ -49,15 +48,15 @@ bool configure_server(in_port_t *port, int *server_fd, struct sockaddr_in *serve
 
 	// Bind socket to address
 	if (bind(*server_fd, (struct sockaddr *)server_addr, sizeof(*server_addr)) < 0) {
-		MON(TAG, "Socket bind failed -> ");
-		MON_PRINTF(TAG, "%d", errno);
+		ESP_LOGI(TAG, "Socket bind failed -> ");
+		ESP_LOGI(TAG, "%d", errno);
 		return false;
 	}
 
 	// Listen for incoming connections
 	if (listen(*server_fd, 5) < 0) { // TODO: Test for single client operation, set to 1 or 0?
-		MON(TAG, "Socket listen failed -> ");
-		MON_PRINTF(TAG, "%d", errno);
+		ESP_LOGI(TAG, "Socket listen failed -> ");
+		ESP_LOGI(TAG, "%d", errno);
 		return false;
 	}
 	return true;
@@ -82,24 +81,24 @@ void task_wifi_server(void *pvParameters)
 	in_port_t port = (in_port_t)server_params->port; // Recover the port number for this task
 	//
 	if (!configure_server(&port, &server_fd, &server_addr)) {
-		MON_PRINTF(TAG, "Failed to configure %s server", server_params->server_name);
+		ESP_LOGI(TAG, "Failed to configure %s server", server_params->server_name);
 	}
 
-	MON_PRINTF(TAG, "%s server task started", server_params->server_name);
+	ESP_LOGI(TAG, "%s server task started", server_params->server_name);
 	//
 	// Main server loop
 	//
 	while (true) {
 		// Accept incoming connections
-		MON_PRINTF(TAG, "%s server waiting for client on port %d.", server_params->server_name, port);
+		ESP_LOGI(TAG, "%s server waiting for client on port %d.", server_params->server_name, port);
 		while (true) {
 			client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &addr_len);
 			if (client_fd < 0) {
-				MON(TAG, "Socket accept failed");
-				MON_PRINTF(TAG, "%d", errno);
+				ESP_LOGI(TAG, "Socket accept failed");
+				ESP_LOGI(TAG, "%d", errno);
 				return; // TODO Deal with error, cannot return!
 			}
-			MON(TAG, "Client connected");
+			ESP_LOGI(TAG, "Client connected");
 			// Set the client socket to non-blocking mode
 			int flags = fcntl(client_fd, F_GETFL, 0);
 			flags = 1;
@@ -129,12 +128,12 @@ void task_wifi_server(void *pvParameters)
 
 					switch (packet_type) {
 					case PROTOCOL_PACKET_TYPE_TO_CLIENT: {
-						MON(TAG, "Packet to client");
+						ESP_LOGI(TAG, "Packet to client");
 						while (packet_size > 0) {
 							bytes_sent = send(client_fd, packet_data, packet_size, 0);
 							if (bytes_sent < 0) {
-								MON(TAG, "Socket send failed: ");
-								MON_PRINTF(TAG, "%d", errno);
+								ESP_LOGI(TAG, "Socket send failed: ");
+								ESP_LOGI(TAG, "%d", errno);
 								break;
 							}
 							packet_size -= bytes_sent;
@@ -146,22 +145,22 @@ void task_wifi_server(void *pvParameters)
 					case PROTOCOL_PACKET_TYPE_COMMAND: {
 						protocol_packet_command_s *command_packet = (protocol_packet_command_s *)packet_data;
 						if (command_packet->command == PROTOCOL_PACKET_TYPE_CMD_SHUTDOWN_GDB_SERVER) {
-							MON(TAG, "Close Client/Server Sockets");
+							ESP_LOGI(TAG, "Close Client/Server Sockets");
 							close(client_fd);
 							client_fd = -1;
 							close(server_fd);
 							server_fd = -1;
 						} else if (command_packet->command == PROTOCOL_PACKET_TYPE_CMD_START_GDB_SERVER) {
 							configure_server(&port, &server_fd, &server_addr);
-							MON(TAG, "Reconfigured Server");
+							ESP_LOGI(TAG, "Reconfigured Server");
 						} else {
-							MON(TAG, "Unknown command received");
+							ESP_LOGI(TAG, "Unknown command received");
 						}
 						break;
 					}
 
 					default:
-						MON(TAG, "Unknown packet type received");
+						ESP_LOGI(TAG, "Unknown packet type received");
 						break;
 					}
 				}

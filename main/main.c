@@ -12,7 +12,6 @@
 #include "nvs_flash.h"
 #include "ctxlink.h"
 #include "tasks/task_spi_comms.h"
-#include "tasks/task_monitor.h"
 #include "tasks/task_wifi.h"
 
 static const char *TAG = "main";
@@ -32,10 +31,6 @@ void app_main(void)
 	// Instantiate the preferences instance
 	//
 	// preferences_init();
-	//
-	// Create the monitor output scheduling task
-	//
-	xTaskCreate(task_monitor, "Monitor", 4096, NULL, 1, NULL);
 	//
 	// Create the SPI communications task
 	//

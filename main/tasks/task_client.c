@@ -11,7 +11,7 @@
  * to ctxLink via the SPI task
  */
 
-#include "serial_control.h"
+#include "esp_log.h"
 #include "socket.h"
 #include "task_client.h"
 #include "ctxlink.h"
@@ -64,18 +64,17 @@ void task_client(void *pvParameters)
 			// Send input to the SPI task for forwarding to ctxLink
 			//
 			packed_size = package_data((uint8_t *)net_input_buffer, bytes_received, server_params->source_type);
-			MON_PRINTF(TAG, "Bytes received: %d\r\n", bytes_received);
-			// MONITOR(print("Bytes received: "));
-			// MONITOR(println(bytes_received));
+			ESP_LOGI(TAG, "Bytes received: %d\r\n", bytes_received);
+			// ESP_LOGI(TAG, "Bytes received: ");
+			// ESP_LOGI(TAG, "%d", bytes_received);
 			// for (int i = 0; i < packed_size; i++)
 			// {
-			//     MONITOR(printf("%02x ", net_input_buffer[i]));
+			//     ESP_LOGI(TAG, "%02x ", net_input_buffer[i]);
 			// }
-			// MONITOR(println());
 			uint8_t *input_message = (uint8_t *)net_input_buffer;
 			xQueueSend(spi_comms_queue, &input_message, 0);
 		} else if (bytes_received == 0) {
-			MON_NL(TAG, "Client disconnected");
+			ESP_LOGI(TAG, "Client disconnected");
 			close(client_fd);
 			client_fd = -1;
 			//
@@ -87,14 +86,14 @@ void task_client(void *pvParameters)
 			// No data available, continue the loop
 			// vTaskDelay(10 / portTICK_PERIOD_MS); // Yield to other tasks
 		} else if (errno == ECONNRESET) {
-			MON_NL(TAG, "Client disconnected abruptly (ECONNRESET)");
+			ESP_LOGI(TAG, "Client disconnected abruptly (ECONNRESET)");
 			close(client_fd);
 			client_fd = -1;
 			server_client_state_to_ctxlink(server_params, 0x00);
 			break;
 		} else {
-			MON(TAG, "Socket read failed: ");
-			MON_PRINTF(TAG, "%d\r\n", errno);
+			ESP_LOGI(TAG, "Socket read failed: ");
+			ESP_LOGI(TAG, "%d\r\n", errno);
 			close(client_fd);
 			client_fd = -1;
 			server_client_state_to_ctxlink(server_params, 0x00);
@@ -104,6 +103,6 @@ void task_client(void *pvParameters)
 	//
 	// Kill this thread, client has disconnected
 	//
-	MON_NL(TAG, "Client task deleted");
+	ESP_LOGI(TAG, "Client task deleted");
 	vTaskDelete(NULL);
 }
