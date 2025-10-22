@@ -9,8 +9,6 @@
  *
  */
 
-#include "serial_control.h"
-
 #include "esp_system.h"
 #include "esp_mac.h"
 #include "esp_log.h"
@@ -28,7 +26,7 @@
 #include "task_server.h"
 
 #include "ctxlink.h"
-
+#include "custom_assert.h"
 //
 // Wi-Fi credentials
 //
@@ -167,7 +165,7 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
 		// Update the current network information structure
 		//
 		memset(&network_info, 0, sizeof(network_connection_info_s));
-		MON_PRINTF(TAG, "Wi-Fi connected to SSID: %s", ssid);
+		ESP_LOGI(TAG, "Wi-Fi connected to SSID: %s", ssid);
 		strncpy(network_info.network_ssid, ssid, MAX_SSID_LENGTH);
 		network_info.type = PROTOCOL_PACKET_STATUS_TYPE_NETWORK_CLIENT;
 		network_info.connected = 0x01; // 0x01 = connected, 0x00 = disconnected
@@ -201,10 +199,10 @@ void wifi_send_server_command(protocol_command_type_e command)
 void wifi_disconnect(void)
 {
 	if (wifi_status == WIFI_STATE_CONNECTED) {
-		MON(TAG, "Disconnecting Wi-Fi");
+		ESP_LOGI(TAG, "Disconnecting Wi-Fi");
 		esp_wifi_disconnect();
 		ulTaskNotifyTake(pdTRUE, portMAX_DELAY); // Wait completed disconnect
-		MON(TAG, "Wi-Fi disconnected");
+		ESP_LOGI(TAG, "Wi-Fi disconnected");
 	}
 } // deinitWiFi() end
 
@@ -216,8 +214,8 @@ void wifi_connect(void)
 	// TODO Set the hostname to something unique, using MAC perhaps?
 	//
 	// WiFi.setHostname("ctxLink_adapter_1");
-	// MON_PRINTF(TAG, "Hostname = %s", WiFi.getHostname());
-	MON(TAG, "Connecting to WiFi.");
+	// ESP_LOGI(TAG, "Hostname = %s", WiFi.getHostname());
+	ESP_LOGI(TAG, "Connecting to WiFi.");
 	wifi_event_group = xEventGroupCreate();
 
 	ESP_ERROR_CHECK(esp_netif_init());
@@ -282,7 +280,7 @@ void wifi_connect(void)
 void wifi_get_net_info(void)
 {
 	uint8_t *message = get_next_spi_buffer();
-	MON(TAG, "Sending network info");
+	ESP_LOGI(TAG, "Sending network info");
 	memcpy(message, &network_info, sizeof(network_connection_info_s));
 	package_data(message, sizeof(network_connection_info_s), PROTOCOL_PACKET_TYPE_NETWORK_INFO);
 	//
@@ -305,8 +303,8 @@ void task_wifi(void *pvParameters)
 	// strcpy(ssid, "Avian Ambassadors");
 	// strcpy(password, "mijo498rocks");
 	size_t settings_count = preferences_get_wifi_parameters(ssid, password);
-	MON_PRINTF(TAG, "SSID: %s", (char *)ssid);
-	MON_PRINTF(TAG, "Passphrase: %s", (char *)password);
+	ESP_LOGI(TAG, "SSID: %s", (char *)ssid);
+	ESP_LOGI(TAG, "Passphrase: %s", (char *)password);
 
 	wifi_connect(); // Attempt to connect to Wi-Fi
 	while (1) {
@@ -314,12 +312,12 @@ void task_wifi(void *pvParameters)
 		// Has the wifi status changed?
 		//
 		if (wifi_status != previous_status) {
-			MON_PRINTF(TAG, "Wi-Fi status changed = %d", wifi_status);
+			ESP_LOGI(TAG, "Wi-Fi status changed = %d", wifi_status);
 			previous_status = wifi_status;
 
 			switch (wifi_status) {
 			case WIFI_STATE_CONNECTED: {
-				MON(TAG, "Wi-Fi Connected");
+				ESP_LOGI(TAG, "Wi-Fi Connected");
 				uint8_t *message = get_next_spi_buffer();
 				memcpy(message, &network_info, sizeof(network_connection_info_s));
 				package_data(message, sizeof(network_connection_info_s), PROTOCOL_PACKET_TYPE_NETWORK_INFO);
@@ -330,10 +328,10 @@ void task_wifi(void *pvParameters)
 					//
 					// Start the GDB Server Task
 					//
-					MON(TAG, "Starting GDB Server Task");
+					ESP_LOGI(TAG, "Starting GDB Server Task");
 					xTaskCreate(task_wifi_server, "GDB Server", 4096, (void *)&gdb_server_params, 1, &gdb_task_handle);
 				} else {
-					MON(TAG, "Restart GDB Server");
+					ESP_LOGI(TAG, "Restart GDB Server");
 					wifi_send_server_command(PROTOCOL_PACKET_TYPE_CMD_START_GDB_SERVER);
 				}
 				//
@@ -344,19 +342,20 @@ void task_wifi(void *pvParameters)
 				//
 				control_esp32_ready(true);
 				vTaskDelay(pdMS_TO_TICKS(1000));
-				xQueueSend(spi_comms_queue, &message,
-					0); // Send network information to SPI task
+				ESP_LOGI(TAG, "Sending network info");
+				FREERTOS_CHECK(
+					xQueueSend(spi_comms_queue, &message, portMAX_DELAY)); // Send network information to SPI task
 				break;
 			}
 
 			case WIFI_STATE_DISCONNECTED: {
-				MON(TAG, "Wi-Fi Disconnected");
+				ESP_LOGI(TAG, "Wi-Fi Disconnected");
 				wifi_send_server_command(PROTOCOL_PACKET_TYPE_CMD_SHUTDOWN_GDB_SERVER);
 				wifi_connect(); // Attempt to reconnect to Wi-Fi
 				break;
 			}
 			default: {
-				MON_PRINTF(TAG, "Wi-Fi status changed = %d", wifi_status);
+				ESP_LOGI(TAG, "Wi-Fi status changed = %d", wifi_status);
 				wifi_status = WIFI_STATE_DISCONNECTED;
 				break;
 			}
@@ -378,9 +377,9 @@ void task_wifi(void *pvParameters)
 				// Process the received packet
 				//
 				network_connection_info_s *conn_info = (network_connection_info_s *)packet_data;
-				MON(TAG, "Network info received");
-				MON_PRINTF(TAG, "SSID: %s", conn_info->network_ssid);
-				MON_PRINTF(TAG, "Passphrase: %s", conn_info->pass_phrase);
+				ESP_LOGI(TAG, "Network info received");
+				ESP_LOGI(TAG, "SSID: %s", conn_info->network_ssid);
+				ESP_LOGI(TAG, "Passphrase: %s", conn_info->pass_phrase);
 				//
 				// Check if the Wi-Fi is already connected
 				//
@@ -389,14 +388,14 @@ void task_wifi(void *pvParameters)
 					// Check if the network information has changed
 					//
 					if (strcmp(ssid, conn_info->network_ssid) != 0 || strcmp(password, conn_info->pass_phrase) != 0) {
-						MON(TAG, "Wi-Fi credentials changed, reconnecting...");
+						ESP_LOGI(TAG, "Wi-Fi credentials changed, reconnecting...");
 						wifi_disconnect(); // Disconnect from the current Wi-Fi connection
 						memset(&network_info, 0, sizeof(network_connection_info_s));
 						strncpy(ssid, conn_info->network_ssid, MAX_SSID_LENGTH);
 						strncpy(password, conn_info->pass_phrase, MAX_PASS_PHRASE_LENGTH);
 						wifi_connect();
 					} else {
-						MON(TAG, "Wi-Fi credentials unchanged");
+						ESP_LOGI(TAG, "Wi-Fi credentials unchanged");
 						wifi_get_net_info();
 					}
 				} else {

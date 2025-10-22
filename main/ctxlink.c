@@ -13,16 +13,22 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
+
+#include <esp_log.h>
+
 #include <driver/gpio.h>
+#include <driver/spi_slave.h>
 
 #include "esp_attr.h"
 
 #include "ctxlink.h"
-// #include "helper.h"
-// #include "serial_control.h"
-// #include "tasks/task_server.h"
 
 #include "tasks/task_spi_comms.h"
+
+#include "custom_assert.h"
+
+#define TAG "CtxLink"
 
 #define nREADY     GPIO_NUM_8 // GPIO pin for ctxLink nReady input
 #define nSPI_READY GPIO_NUM_7 // GPIO pin for ctxLink SPI ready input
@@ -64,6 +70,7 @@ void spi_save_tx_transaction_buffer(uint8_t *transaction_buffer)
  */
 void IRAM_ATTR userTransactionCallback(void *arg)
 {
+	ESP_LOGI(TAG, "Transaction complete callback");
 	gpio_set_level(nSPI_READY, 1);
 	gpio_set_level(ATTN, 1);
 
@@ -80,6 +87,7 @@ void IRAM_ATTR userTransactionCallback(void *arg)
  */
 static void IRAM_ATTR userPostSetupCallback(void *arg)
 {
+	ESP_LOGI(TAG, "Post setup callback");
 	gpio_set_level(nSPI_READY, 0); // Tell ctxLink the transaction is ready to go.
 }
 
@@ -95,6 +103,7 @@ static void IRAM_ATTR userPostSetupCallback(void *arg)
  */
 static void IRAM_ATTR spi_ss_activated(void *arg)
 {
+	ESP_LOGI(TAG, "SS activated %d", attn_state);
 	control_esp32_ready(false); // De-assert ESP32 is ready
 	if (system_setup_done) {
 		if (gpio_get_level(ATTN) == 0) { // Is this a TX transaction?
@@ -171,10 +180,7 @@ void initCtxLink(void)
 void spi_create_pending_transaction(uint8_t *dma_tx_buffer, uint8_t *dma_rx_buffer, bool isTx)
 {
 	is_tx = isTx; // Set the transaction type
-	// with user-defined ISR callback that is called before/after transaction
-	// start you can set these callbacks and arguments before each queue()
-	// slave.setUserPostSetupCbAndArg(userPostSetupCallback, NULL);
-	// slave.setUserPostTransCbAndArg(userTransactionCallback, NULL);
+	ESP_LOGI(TAG, "Queueing %s transaction", isTx ? "TX" : "RX");
 	//
 	// Set up the transaction buffers depending upon the transfer direction
 	//

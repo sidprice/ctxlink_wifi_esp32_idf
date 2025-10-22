@@ -11,13 +11,14 @@
  * via the SPI interface.
  */
 
-#include "serial_control.h"
 #include "task_spi_comms.h"
 #include "driver/spi_slave.h"
 #include "ctxlink.h"
 #include "protocol.h"
 #include "task_server.h"
 #include "task_wifi.h"
+
+#include "custom_assert.h"
 
 // #include "debug.h"
 
@@ -114,7 +115,8 @@ void task_spi_comms(void *pvParameters)
 
 	while (true) {
 		// Wait for a message from the other tasks or spi driver
-		xQueueReceive(spi_comms_queue, &message, portMAX_DELAY);
+		FREERTOS_CHECK(xQueueReceive(spi_comms_queue, &message, portMAX_DELAY));
+		// CUSTOM_ASSERT(message != NULL);
 		//
 		// Process the message
 		//
@@ -123,13 +125,14 @@ void task_spi_comms(void *pvParameters)
 		protocol_packet_type_e packet_type;
 		uint8_t *packet_data;
 		packet_size = protocol_split(message, &data_length, &packet_type, &packet_data);
+		ESP_LOGI(TAG, "Received packet type %d, size %d", packet_type, packet_size);
 		switch (packet_type) {
 		case PROTOCOL_PACKET_TYPE_EMPTY: {
-			//  MON_NL(TAG, "TX done?");
+			//  ESP_LOGI(TAG, "TX done?");
 			break;
 		}
 		case PROTOCOL_PACKET_TYPE_TO_GDB: {
-			MON(TAG, "Packet to GDB");
+			ESP_LOGI(TAG, "Packet to GDB");
 			//
 			// Send the packet to the server task
 			//
@@ -161,13 +164,15 @@ void task_spi_comms(void *pvParameters)
 		// to send the received message to ctxLink
 		//
 		case PROTOCOL_PACKET_TYPE_NETWORK_INFO:
+			ESP_LOGI(TAG, "Network Info");
 		case PROTOCOL_PACKET_TYPE_FROM_GDB:
 		case PROTOCOL_PACKET_TYPE_STATUS: {
+			ESP_LOGI(TAG, "Packet to ctxLink");
 			spi_save_tx_transaction_buffer(message); // Save the transaction buffer for SPI driver
 			break;
 		}
 		default: {
-			// MON_PRINTF(TAG, "Unknown packet type -> %d", packet_type);
+			ESP_LOGI(TAG, "Unknown packet type %d", packet_type);
 			break;
 		}
 		}

@@ -16,7 +16,6 @@
 #include "nvs.h"
 
 #include "protocol.h"
-#include "serial_control.h"
 
 /**
  * @brief Define the logging tag for this module
@@ -50,10 +49,10 @@ void preferences_init(void)
 	esp_err_t err;
 	err = nvs_open("ctxlink_prefs", NVS_READWRITE, &preferences);
 	if (err != ESP_OK) {
-		MON_PRINTF(TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));
+		ESP_LOGI(TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));
 		return;
 	}
-	MON(TAG, "Preferences NVS handle opened");
+	ESP_LOGI(TAG, "Preferences NVS handle opened");
 }
 
 /**
@@ -65,7 +64,7 @@ void preferences_save_wifi_parameters(char *ssid, char *password)
 	esp_err_t err;
 	err = nvs_set_str(preferences, wifi_ssid_key, ssid);
 	if (err != ESP_OK) {
-		MON_PRINTF(TAG, "Error (%s) saving SSID!", esp_err_to_name(err));
+		ESP_LOGI(TAG, "Error (%s) saving SSID!", esp_err_to_name(err));
 		return;
 	}
 	//
@@ -73,11 +72,11 @@ void preferences_save_wifi_parameters(char *ssid, char *password)
 	//
 	err = nvs_set_str(preferences, wifi_password_key, password);
 	if (err != ESP_OK) {
-		MON_PRINTF(TAG, "Error (%s) saving password!", esp_err_to_name(err));
+		ESP_LOGI(TAG, "Error (%s) saving password!", esp_err_to_name(err));
 		return;
 	}
 	nvs_commit(preferences); // Ensure the values are written to flash
-	MON(TAG, "Wi-Fi parameters saved to preferences");
+	ESP_LOGI(TAG, "Wi-Fi parameters saved to preferences");
 }
 
 /**
@@ -110,7 +109,7 @@ size_t preferences_get_wifi_parameters(char *ssid, char *password)
 	err = nvs_get_str(preferences, wifi_password_key, password, &password_length);
 	password_length = strlen(password);
 	if (password_length == 0) {
-		MON(TAG, "No password found in preferences, using default");
+		ESP_LOGI(TAG, "No password found in preferences, using default");
 		strcpy(password, "pass_phrase"); // Default pass phrase
 		password_length = strlen((char *)password);
 		save = true; // Need to save the default pass phrase

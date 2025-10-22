@@ -1,7 +1,6 @@
 idf_component_register(SRCS   "main.c"
                               "ctxlink.c"
                               "ctxlink_preferences.c"
-                              "tasks/task_monitor.c"
                               "tasks/task_server.c"
                               "tasks/task_spi_comms.c"
                               "tasks/task_wifi.c"
