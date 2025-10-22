@@ -42,11 +42,11 @@ void app_main(void)
 	//
 	// Create the SPI communications task
 	//
-	xTaskCreate(task_spi_comms, "SPI Comms", 4096, NULL, 2, NULL);
+	xTaskCreate(task_spi_comms, "SPI Comms", 8192, NULL, 2, NULL);
 	//
 	// Set up Wi-Fi connection and monitor status
 	//
-	xTaskCreate(task_wifi, "Wi-Fi", 4096, NULL, 2, &wifi_task_handle);
+	xTaskCreate(task_wifi, "Wi-Fi", 8192, NULL, 2, &wifi_task_handle);
 	while (1) {
 		vTaskDelay(pdMS_TO_TICKS(1000));
 	}

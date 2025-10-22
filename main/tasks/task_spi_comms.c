@@ -34,7 +34,7 @@ static bool tx_inflight = false;
  * Note: The buffers are aligned to 4 bytes to ensure that they are suitable for use with the SPI interface. This
  *          is noted in the ESP32 SPI documentation
  */
-uint8_t spi_buffers[SPI_BUFFER_COUNT][SPI_BUFFER_SIZE] __attribute__((aligned(4)));
+DMA_ATTR uint8_t spi_buffers[SPI_BUFFER_COUNT][SPI_BUFFER_SIZE] __attribute__((aligned(4)));
 
 /**
  * @brief This is the depth of the SPI task messaging queue
@@ -91,6 +91,19 @@ uint8_t *get_spi_buffer(uint8_t index)
 }
 
 /**
+ * @brief Initialize the SPI communications queue
+ * 
+ */
+void initSpiCommsQueue(void)
+{
+	if (spi_comms_queue == NULL) {
+		spi_comms_queue = xQueueCreate(spi_comms_queue_length,
+			sizeof(uint8_t *)); // Create the queue for the SPI task
+		CUSTOM_ASSERT(spi_comms_queue != NULL);
+	}
+}
+
+/**
  * @brief Task to handle all communications between the server tasks and the ctxLink module
  *
  * @param pvParameters Not used
@@ -107,7 +120,6 @@ uint8_t *get_spi_buffer(uint8_t index)
 void task_spi_comms(void *pvParameters)
 {
 	static uint8_t *message;
-	spi_comms_queue = xQueueCreate(spi_comms_queue_length, sizeof(uint8_t *)); // Create the queue for the SPI task
 	//
 	// TODO is this a good place for this?
 	//
@@ -124,13 +136,13 @@ void task_spi_comms(void *pvParameters)
 		size_t packet_size;
 		protocol_packet_type_e packet_type;
 		uint8_t *packet_data;
-		assert(*message == 0xde); // Check for valid packet header
 		// Split the packet into its components
 		packet_size = protocol_split(message, &data_length, &packet_type, &packet_data);
 		ESP_LOGI(TAG, "Received packet type %d, size %d", packet_type, packet_size);
 		switch (packet_type) {
 		case PROTOCOL_PACKET_TYPE_EMPTY: {
-			//  ESP_LOGI(TAG, "TX done?");
+			ESP_LOGI(TAG, "Packet was sent to ctxLink");
+			// queue_mt_packet = true;
 			break;
 		}
 		case PROTOCOL_PACKET_TYPE_TO_GDB: {
@@ -144,6 +156,8 @@ void task_spi_comms(void *pvParameters)
 			// The server parameters ensure the message is routed to the right
 			// server task.
 			//
+			// TODO It looks like the wrong message offset is being used here.
+			//       Check this is correct.
 			*(message + PACKET_HEADER_SOURCE_ID) = PROTOCOL_PACKET_TYPE_TO_CLIENT;
 			//
 			// TODO Need to check if there is a client attached to GDB server
@@ -169,7 +183,8 @@ void task_spi_comms(void *pvParameters)
 		case PROTOCOL_PACKET_TYPE_FROM_GDB:
 		case PROTOCOL_PACKET_TYPE_STATUS: {
 			ESP_LOGI(TAG, "Packet to ctxLink");
-			spi_save_tx_transaction_buffer(message); // Save the transaction buffer for SPI driver
+			protocol_split(message, &data_length, &packet_type, &packet_data);
+			spi_queue_transaction(message, data_length); // Save the transaction buffer for SPI driver
 			break;
 		}
 		default: {

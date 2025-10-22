@@ -30,6 +30,8 @@
 
 #define TAG "CtxLink"
 
+#include "protocol.h"
+
 #define nREADY     GPIO_NUM_8 // GPIO pin for ctxLink nReady input
 #define nSPI_READY GPIO_NUM_7 // GPIO pin for ctxLink SPI ready input
 
@@ -38,49 +40,97 @@
 #define SPI_MOSI_PIN GPIO_NUM_35
 #define SPI_SCK_PIN  GPIO_NUM_36
 
-static bool is_tx = false;
-
 #define BUFFER_SIZE 2000 // should be multiple of 4
 #define QUEUE_SIZE  1
 
-static uint8_t *tx_saved_transaction;
-static uint8_t zero_transaction_buffer[BUFFER_SIZE] = {0}; // Use your max transfer size
+/**
+ * @brief Define the SPI peripheral to be used
+ * 
+ */
+#define SPI_HOST SPI2_HOST
 
 bool system_setup_done = false;
+static spi_slave_transaction_t transaction_1 = {0};
+static spi_slave_transaction_t transaction_2 = {0};
+static bool use_trans_1 = true;
 
-static int attn_state = 0;
+/**	
+ * @brief Count of MT packets queued
+ * 
+ * This variable is used to limit the number of MT packets
+ * queued to one at a time.
+ */
+static uint8_t mt_packets_queued = 0;
 
 /**
- * @brief Save the passed transaction packet pointer for later transmission
+ * @brief Reset the SPI slave queue
+ * 
+ * @param host 
+ * @return esp_err_t 
+ * 
+ * N.B. This function is defined in spi_slave.c but not declared in any header file.
+ */
+extern esp_err_t spi_slave_queue_reset(spi_host_device_t host);
+
+/**
+ * @brief Save the passed transaction for transmission
  *
  * @param transaction_buffer  Pointer to the packet to be sent
+ * @param length              Length of the packet to be sent
  *
- *  We are about to start a TX transaction, so save the packet pointer and
- *  assert the ATTN signal to ctxLink.
+ *  We are about to start a TX transaction:
  */
-void spi_save_tx_transaction_buffer(uint8_t *transaction_buffer)
+void spi_queue_transaction(uint8_t *transaction_buffer, size_t length)
 {
-	tx_saved_transaction = transaction_buffer;
-	attn_state = 0;
+	uint8_t *tx_buffer = get_next_spi_buffer();
+	uint8_t *rx_buffer = get_next_spi_buffer();
+
+	// Save the transaction data to the DMA buffer
+	ESP_LOGI(TAG, "Create pending transaction type %02hx", *(transaction_buffer + 2));
+	memcpy(tx_buffer, transaction_buffer, length);
+	memset(rx_buffer, 0, BUFFER_SIZE); // Clear the RX buffer
+	spi_create_pending_transaction(tx_buffer, rx_buffer);
+	ESP_LOGI(TAG, "Pending transaction created");
+	// Signal master there's new data
 	gpio_set_level(ATTN, 0);
+	gpio_set_level(ATTN, 1);
 }
 
 /**
  * @brief Callback function on transaction completed
  *
+ * Send the received data to the SPI comms task.
+ * 
  */
 void IRAM_ATTR userTransactionCallback(spi_slave_transaction_t *trans)
 {
-	ESP_LOGI(TAG, "Transaction complete callback");
+	//
+	// Negate nSPI_READY to indicate we're processing the data
+	//
 	gpio_set_level(nSPI_READY, 1);
-	attn_state = 1;
-	gpio_set_level(ATTN, 1);
-
-	if (is_tx == false) {
-		assert(trans->rx_buffer != NULL);
-		FREERTOS_CHECK(xQueueSendFromISR(spi_comms_queue, trans->rx_buffer, NULL));
-	} else {
-		ESP_LOGI(TAG, "TX transaction complete");
+	//
+	// Check if there is input data, if so, send to spi comms task
+	//
+	if (trans->rx_buffer) {
+		uint8_t packet_type = ((uint8_t *)trans->rx_buffer)[2];
+		ESP_EARLY_LOGI(TAG, "Received data, packet  %02x", packet_type);
+		if (packet_type != PROTOCOL_PACKET_TYPE_EMPTY) {
+			//
+			// Send packet to SPI comms task
+			//
+			ESP_EARLY_LOGI(TAG, "Send input packet to SPI comms task");
+			uint8_t *message_buffer = get_next_spi_buffer();
+			memcpy(message_buffer, trans->rx_buffer, BUFFER_SIZE);
+			assert(spi_comms_queue != NULL);
+			FREERTOS_CHECK(xQueueSendFromISR(spi_comms_queue, &message_buffer, NULL));
+		} else {
+			mt_packets_queued--;
+			ESP_EARLY_LOGI(TAG, "Queue empty packet");
+			// Queue a new MT packet immediately so master can send data
+			// This will trigger userPostSetupCallback which will set nSPI_READY = 0
+			spi_queue_mt_packet();
+		}
+		ESP_EARLY_LOGI(TAG, "Post queue send");
 	}
 }
 
@@ -88,38 +138,37 @@ void IRAM_ATTR userTransactionCallback(spi_slave_transaction_t *trans)
  * @brief Callback function, called after transaction setup is completed
  *
  */
-static void IRAM_ATTR userPostSetupCallback()
+static void IRAM_ATTR userPostSetupCallback(spi_slave_transaction_t *trans)
 {
-	ESP_LOGI(TAG, "Post setup callback");
-	gpio_set_level(nSPI_READY, 0); // Tell ctxLink the transaction is ready to go.
+	ESP_EARLY_LOGI(TAG, "Post setup: trans=%p, tx_buf=%p, tx_buf[2]=0x%02x", trans, trans->tx_buffer,
+		trans->tx_buffer ? ((uint8_t *)trans->tx_buffer)[2] : 0xFF);
+
+	gpio_set_level(nSPI_READY, 0);
 }
 
 /**
- * @brief Interrupt handler for the SPI CS input falling transition
- *
- *  If ATTN is asserted, set up a TX transaction using the saved txtransaction
- * packet.
- *
- *  Otherwise, set up an RX transaction
- *
- *  Do nothing if ESP32 is not ready!
+ * @brief Queue an empty packet.
+ * 
+ * This function sets up the SPI channel to be ready to receive
+ * data from ctxLink.
+ * 
+ * The master should read a second packet whenever it receives an MT packet.
+ * 
+ * Note: Only one empty packet can be queued at a time.
  */
-static void IRAM_ATTR spi_ss_activated(void *arg)
+void spi_queue_mt_packet(void)
 {
-	ESP_LOGI(TAG, "SS activated %d", attn_state);
-	control_esp32_ready(false); // De-assert ESP32 is ready
-	if (system_setup_done) {
-		if (attn_state == 0) { // Is this a TX transaction?
-			ESP_LOGI(TAG, "Setting up TX transaction");
-			// Set up a transaction to send the saved transaction buffer to ctxLink
-			spi_create_pending_transaction(tx_saved_transaction, NULL,
-				true); // This is a pending tx transaction
-		} else {
-			// Set up a transaction to receive data from ctxLink
-			ESP_LOGI(TAG, "Setting up RX transaction");
-			spi_create_pending_transaction(NULL, get_next_spi_buffer(),
-				false); // This is a pending rx transaction
-		}
+	if (mt_packets_queued == 0) {
+		ESP_EARLY_LOGI(TAG, "Queueing MT packet");
+		uint8_t *tx_buffer = get_next_spi_buffer();
+		uint8_t *rx_buffer = get_next_spi_buffer();
+
+		mt_packets_queued++;
+		memset(rx_buffer, 0, BUFFER_SIZE);                    // Clear the RX buffer
+		protocol_get_mt_packet(tx_buffer);                    // Ensure the MT packet is correct
+		spi_create_pending_transaction(tx_buffer, rx_buffer); // This is a pending rx transaction
+	} else {
+		ESP_EARLY_LOGI(TAG, "Attempt to queue multiple MT packets");
 	}
 }
 
@@ -131,6 +180,7 @@ void initCtxLink(void)
 {
 	esp_err_t err;
 	ESP_LOGI(TAG, "initCtxLink");
+	initSpiCommsQueue();
 	//
 	// Init the SPI slave bus
 	//
@@ -145,52 +195,34 @@ void initCtxLink(void)
 	spi_slave_interface_config_t slvcfg = {
 		.mode = 1,
 		.spics_io_num = SPI_SS_PIN,
-		.queue_size = 1,
+		.queue_size = 2, // Additional queue entry for the empty packet feature
 		.flags = 0,
 		.post_setup_cb = userPostSetupCallback,
 		.post_trans_cb = userTransactionCallback,
 	};
-	ESP_LOGI(TAG, "spi_slave_initialize enter");
-	err = spi_slave_initialize(SPI2_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
-	ESP_LOGI(TAG, "spi_slave_initialize: %d", err);
-	//
-	// Setup the SPI_SS_PIN as an input with pullup and interrupt on falling edge
-	//
-	gpio_config_t gpio_configuration;
-	memset(&gpio_configuration, 0, sizeof(gpio_configuration));
-	gpio_configuration.intr_type = GPIO_INTR_NEGEDGE;
-	gpio_configuration.pin_bit_mask = (1ULL << SPI_SS_PIN);
-	gpio_configuration.mode = GPIO_MODE_INPUT;
-	gpio_configuration.pull_down_en = GPIO_PULLDOWN_DISABLE;
-	gpio_configuration.pull_up_en = GPIO_PULLUP_DISABLE;
-	err = gpio_config(&gpio_configuration);
-	ESP_LOGI(TAG, "gpio_config: %d", err);
+	err = spi_slave_initialize(SPI_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
 	//
 	// Configure the GPIO outputs
 	//
+	gpio_config_t gpio_configuration;
 	gpio_configuration.intr_type = GPIO_INTR_DISABLE;
 	gpio_configuration.mode = GPIO_MODE_OUTPUT;
 	gpio_configuration.pin_bit_mask = (1ULL << nREADY) | (1ULL << nSPI_READY) | (1ULL << ATTN);
 	gpio_configuration.pull_down_en = GPIO_PULLDOWN_DISABLE;
 	gpio_configuration.pull_up_en = GPIO_PULLUP_DISABLE;
 	gpio_config(&gpio_configuration);
+
 	//
 	// Set the startup output levels to false (high)
 	//
 	gpio_set_level(nREADY, 1);
 	gpio_set_level(nSPI_READY, 1);
-	attn_state = 1;
 	gpio_set_level(ATTN, 1);
+
 	//
-	// Setup and enable the interrupt
+	// Create a SPI transaction to receive data from ctxLink
 	//
-	err = gpio_install_isr_service(0);
-	ESP_LOGI(TAG, "gpio_install_isr_service: %d", err);
-	//
-	// Finally enable the SS interrupt
-	//
-	err = gpio_isr_handler_add(SPI_SS_PIN, spi_ss_activated, NULL);
-	ESP_LOGI(TAG, "gpio_isr_handler_add: %d", err);
+	spi_queue_mt_packet();
 }
 
 /**
@@ -200,34 +232,21 @@ void initCtxLink(void)
  * a transaction. This pending transaction is created to service
  * a transaction from the master.
  *
- * TODO: Update the following comment, as it is out of date
  * Note:  When the slave has a packet to send to the master, the pending
  *        transaction will be removed from the queue, and a new one
  *        created after the slave packet has been sent to the master.
  */
-void spi_create_pending_transaction(uint8_t *dma_tx_buffer, uint8_t *dma_rx_buffer, bool isTx)
+void spi_create_pending_transaction(uint8_t *dma_tx_buffer, uint8_t *dma_rx_buffer)
 {
-	is_tx = isTx; // Set the transaction type
-	ESP_LOGI(TAG, "Queueing %s transaction", isTx ? "TX" : "RX");
-	//
-	// Set up the transaction buffers depending upon the transfer direction
-	//
-	// Replace NULL pointers with pointers to buffers filled with zeroes.
-	//
-	// Note: Only a single zero-filled buffer is provided since one of the RX/TX
-	// buffers must be valid!
-	//
-	// This keeps the buffers valid, even when not supplied by the caller
-	//
-	const uint8_t *tx_buf_to_use = (dma_tx_buffer == NULL) ? zero_transaction_buffer : dma_tx_buffer;
-	uint8_t *rx_buf_to_use = (dma_rx_buffer == NULL) ? zero_transaction_buffer : dma_rx_buffer;
-	spi_slave_transaction_t transaction;
-	memset(&transaction, 0, sizeof(transaction)); // Zero out the transaction
-	transaction.length = BUFFER_SIZE * 8;         // Length in bits
-	transaction.tx_buffer = tx_buf_to_use;
-	transaction.rx_buffer = rx_buf_to_use;
-	// ESP_LOGI(TAG, "Queueing %s transaction", isTx ? "TX" : "RX");
-	ESP_ERROR_CHECK(spi_slave_queue_trans(SPI2_HOST, &transaction, portMAX_DELAY));
+	spi_slave_transaction_t *trans = use_trans_1 ? &transaction_1 : &transaction_2;
+	use_trans_1 = !use_trans_1;
+
+	memset(trans, 0, sizeof(*trans));
+	trans->length = BUFFER_SIZE * 8;
+	trans->tx_buffer = dma_tx_buffer;
+	trans->rx_buffer = dma_rx_buffer;
+
+	ESP_ERROR_CHECK(spi_slave_queue_trans(SPI_HOST, trans, portMAX_DELAY));
 }
 
 /**
