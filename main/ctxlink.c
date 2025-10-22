@@ -129,40 +129,8 @@ static void IRAM_ATTR spi_ss_activated(void *arg)
  */
 void initCtxLink(void)
 {
-	//
-	// Configure the GPIO outputs
-	//
-	gpio_config_t gpio_configuration;
-	gpio_configuration.intr_type = GPIO_INTR_DISABLE;
-	gpio_configuration.mode = GPIO_MODE_OUTPUT;
-	gpio_configuration.pin_bit_mask = (1ULL << nREADY) | (1ULL << nSPI_READY) | (1ULL << ATTN);
-	gpio_configuration.pull_down_en = GPIO_PULLDOWN_DISABLE;
-	gpio_configuration.pull_up_en = GPIO_PULLUP_DISABLE;
-	gpio_config(&gpio_configuration);
-	//
-	// Set the startup output levels to false (high)
-	//
-	gpio_set_level(nREADY, 1);
-	gpio_set_level(nSPI_READY, 1);
-	attn_state = 1;
-	gpio_set_level(ATTN, 1);
-	//
-	// Setup the SPI_SS_PIN as an input with pullup and interrupt on falling edge
-	//
-	memset(&gpio_configuration, 0, sizeof(gpio_configuration));
-	gpio_configuration.intr_type = GPIO_INTR_NEGEDGE;
-	gpio_configuration.pin_bit_mask = (1ULL << SPI_SS_PIN);
-	gpio_configuration.mode = GPIO_MODE_INPUT;
-	gpio_configuration.pull_down_en = GPIO_PULLDOWN_DISABLE;
-	gpio_configuration.pull_up_en = GPIO_PULLUP_DISABLE;
 	esp_err_t err;
-	err = gpio_config(&gpio_configuration);
-	ESP_LOGI(TAG, "gpio_config: %d", err);
-	//
-	// Setup and enable the interrupt
-	//
-	err = gpio_install_isr_service(0);
-	ESP_LOGI(TAG, "gpio_install_isr_service: %d", err);
+	ESP_LOGI(TAG, "initCtxLink");
 	//
 	// Init the SPI slave bus
 	//
@@ -182,7 +150,42 @@ void initCtxLink(void)
 		.post_setup_cb = userPostSetupCallback,
 		.post_trans_cb = userTransactionCallback,
 	};
-	spi_slave_initialize(SPI2_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
+	ESP_LOGI(TAG, "spi_slave_initialize enter");
+	err = spi_slave_initialize(SPI2_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
+	ESP_LOGI(TAG, "spi_slave_initialize: %d", err);
+	//
+	// Setup the SPI_SS_PIN as an input with pullup and interrupt on falling edge
+	//
+	gpio_config_t gpio_configuration;
+	memset(&gpio_configuration, 0, sizeof(gpio_configuration));
+	gpio_configuration.intr_type = GPIO_INTR_NEGEDGE;
+	gpio_configuration.pin_bit_mask = (1ULL << SPI_SS_PIN);
+	gpio_configuration.mode = GPIO_MODE_INPUT;
+	gpio_configuration.pull_down_en = GPIO_PULLDOWN_DISABLE;
+	gpio_configuration.pull_up_en = GPIO_PULLUP_DISABLE;
+	err = gpio_config(&gpio_configuration);
+	ESP_LOGI(TAG, "gpio_config: %d", err);
+	//
+	// Configure the GPIO outputs
+	//
+	gpio_configuration.intr_type = GPIO_INTR_DISABLE;
+	gpio_configuration.mode = GPIO_MODE_OUTPUT;
+	gpio_configuration.pin_bit_mask = (1ULL << nREADY) | (1ULL << nSPI_READY) | (1ULL << ATTN);
+	gpio_configuration.pull_down_en = GPIO_PULLDOWN_DISABLE;
+	gpio_configuration.pull_up_en = GPIO_PULLUP_DISABLE;
+	gpio_config(&gpio_configuration);
+	//
+	// Set the startup output levels to false (high)
+	//
+	gpio_set_level(nREADY, 1);
+	gpio_set_level(nSPI_READY, 1);
+	attn_state = 1;
+	gpio_set_level(ATTN, 1);
+	//
+	// Setup and enable the interrupt
+	//
+	err = gpio_install_isr_service(0);
+	ESP_LOGI(TAG, "gpio_install_isr_service: %d", err);
 	//
 	// Finally enable the SS interrupt
 	//
