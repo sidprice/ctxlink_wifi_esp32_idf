@@ -24,7 +24,15 @@ TaskHandle_t wifi_task_handle = 0;
 
 void app_main(void)
 {
+	// Silence common noisy components
+	esp_log_level_set("wifi", ESP_LOG_NONE);
+	esp_log_level_set("wifi_init", ESP_LOG_NONE);
+	esp_log_level_set("phy_init", ESP_LOG_NONE);
+	esp_log_level_set("system_api", ESP_LOG_NONE);
+	esp_log_level_set("tcpip_adapter", ESP_LOG_NONE);
+
 	nvs_flash_init();
+	vTaskDelay(pdMS_TO_TICKS(500));
 	ESP_LOGI(TAG, "CtxLink ESP32 WiFi Coprocessor, v0.1");
 	initCtxLink();
 	//

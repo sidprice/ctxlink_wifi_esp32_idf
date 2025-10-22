@@ -47,6 +47,7 @@ static nvs_handle_t preferences;
 void preferences_init(void)
 {
 	esp_err_t err;
+	esp_log_level_set(TAG, ESP_LOG_NONE); // Disable all logs for this module
 	err = nvs_open("ctxlink_prefs", NVS_READWRITE, &preferences);
 	if (err != ESP_OK) {
 		ESP_LOGI(TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));

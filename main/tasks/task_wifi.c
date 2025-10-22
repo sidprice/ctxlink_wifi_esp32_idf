@@ -293,6 +293,8 @@ void task_wifi(void *pvParameters)
 	(void)pvParameters; // Unused parameter
 	BaseType_t result;
 	static uint8_t *message;
+
+	esp_log_level_set(TAG, ESP_LOG_NONE);
 	//
 	wifi_comms_queue = xQueueCreate(wifi_comms_queue_length,
 		sizeof(uint8_t *)); // Create the queue for the SPI task
