@@ -16,8 +16,8 @@
 #include "driver/spi_slave.h"
 #include "ctxlink.h"
 #include "protocol.h"
-// #include "tasks/task_server.h"
-// #include "tasks/task_wifi.h"
+#include "task_server.h"
+#include "task_wifi.h"
 
 // #include "debug.h"
 
@@ -129,6 +129,7 @@ void task_spi_comms(void *pvParameters)
 			break;
 		}
 		case PROTOCOL_PACKET_TYPE_TO_GDB: {
+			MON(TAG, "Packet to GDB");
 			//
 			// Send the packet to the server task
 			//
@@ -143,8 +144,8 @@ void task_spi_comms(void *pvParameters)
 			// TODO Need to check if there is a client attached to GDB server
 			//
 
-			// xQueueSend(
-			// 	gdb_server_params.server_queue, &message, portMAX_DELAY); // Send the message to the gdb server task
+			xQueueSend(
+				gdb_server_params.server_queue, &message, portMAX_DELAY); // Send the message to the gdb server task
 			break;
 		}
 
@@ -152,7 +153,7 @@ void task_spi_comms(void *pvParameters)
 			//
 			// Send the packet to the Wi-Fi task
 			//
-			// xQueueSend(wifi_comms_queue, &message, portMAX_DELAY); // Send the message to the Wi-Fi task
+			xQueueSend(wifi_comms_queue, &message, portMAX_DELAY); // Send the message to the Wi-Fi task
 			break;
 		}
 		//
