@@ -124,6 +124,8 @@ void task_spi_comms(void *pvParameters)
 		size_t packet_size;
 		protocol_packet_type_e packet_type;
 		uint8_t *packet_data;
+		assert(*message == 0xde); // Check for valid packet header
+		// Split the packet into its components
 		packet_size = protocol_split(message, &data_length, &packet_type, &packet_data);
 		ESP_LOGI(TAG, "Received packet type %d, size %d", packet_type, packet_size);
 		switch (packet_type) {
@@ -164,7 +166,6 @@ void task_spi_comms(void *pvParameters)
 		// to send the received message to ctxLink
 		//
 		case PROTOCOL_PACKET_TYPE_NETWORK_INFO:
-			ESP_LOGI(TAG, "Network Info");
 		case PROTOCOL_PACKET_TYPE_FROM_GDB:
 		case PROTOCOL_PACKET_TYPE_STATUS: {
 			ESP_LOGI(TAG, "Packet to ctxLink");

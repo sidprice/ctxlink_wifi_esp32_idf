@@ -48,6 +48,8 @@ static uint8_t zero_transaction_buffer[BUFFER_SIZE] = {0}; // Use your max trans
 
 bool system_setup_done = false;
 
+static int attn_state = 0;
+
 /**
  * @brief Save the passed transaction packet pointer for later transmission
  *
@@ -59,33 +61,34 @@ bool system_setup_done = false;
 void spi_save_tx_transaction_buffer(uint8_t *transaction_buffer)
 {
 	tx_saved_transaction = transaction_buffer;
+	attn_state = 0;
 	gpio_set_level(ATTN, 0);
 }
 
 /**
  * @brief Callback function on transaction completed
  *
- * @param trans Pointer to the transaction that was completed
- * @param arg   Unused user argument
  */
-void IRAM_ATTR userTransactionCallback(void *arg)
+void IRAM_ATTR userTransactionCallback(spi_slave_transaction_t *trans)
 {
 	ESP_LOGI(TAG, "Transaction complete callback");
 	gpio_set_level(nSPI_READY, 1);
+	attn_state = 1;
 	gpio_set_level(ATTN, 1);
 
-	// if (is_tx == false) {
-	// 	xQueueSendFromISR(spi_comms_queue, (uint8_t *)NULL, NULL);
-	// }
+	if (is_tx == false) {
+		assert(trans->rx_buffer != NULL);
+		FREERTOS_CHECK(xQueueSendFromISR(spi_comms_queue, trans->rx_buffer, NULL));
+	} else {
+		ESP_LOGI(TAG, "TX transaction complete");
+	}
 }
 
 /**
  * @brief Callback function, called after transaction setup is completed
  *
- * @param trans Pointer to the transaction that was set up
- * @param arg Unused user argument
  */
-static void IRAM_ATTR userPostSetupCallback(void *arg)
+static void IRAM_ATTR userPostSetupCallback()
 {
 	ESP_LOGI(TAG, "Post setup callback");
 	gpio_set_level(nSPI_READY, 0); // Tell ctxLink the transaction is ready to go.
@@ -106,12 +109,14 @@ static void IRAM_ATTR spi_ss_activated(void *arg)
 	ESP_LOGI(TAG, "SS activated %d", attn_state);
 	control_esp32_ready(false); // De-assert ESP32 is ready
 	if (system_setup_done) {
-		if (gpio_get_level(ATTN) == 0) { // Is this a TX transaction?
+		if (attn_state == 0) { // Is this a TX transaction?
+			ESP_LOGI(TAG, "Setting up TX transaction");
 			// Set up a transaction to send the saved transaction buffer to ctxLink
 			spi_create_pending_transaction(tx_saved_transaction, NULL,
 				true); // This is a pending tx transaction
 		} else {
 			// Set up a transaction to receive data from ctxLink
+			ESP_LOGI(TAG, "Setting up RX transaction");
 			spi_create_pending_transaction(NULL, get_next_spi_buffer(),
 				false); // This is a pending rx transaction
 		}
@@ -139,30 +144,50 @@ void initCtxLink(void)
 	//
 	gpio_set_level(nREADY, 1);
 	gpio_set_level(nSPI_READY, 1);
+	attn_state = 1;
 	gpio_set_level(ATTN, 1);
 	//
 	// Setup the SPI_SS_PIN as an input with pullup and interrupt on falling edge
 	//
+	memset(&gpio_configuration, 0, sizeof(gpio_configuration));
 	gpio_configuration.intr_type = GPIO_INTR_NEGEDGE;
 	gpio_configuration.pin_bit_mask = (1ULL << SPI_SS_PIN);
 	gpio_configuration.mode = GPIO_MODE_INPUT;
 	gpio_configuration.pull_down_en = GPIO_PULLDOWN_DISABLE;
-	gpio_configuration.pull_up_en = GPIO_PULLUP_ENABLE;
-	gpio_config(&gpio_configuration);
+	gpio_configuration.pull_up_en = GPIO_PULLUP_DISABLE;
+	esp_err_t err;
+	err = gpio_config(&gpio_configuration);
+	ESP_LOGI(TAG, "gpio_config: %d", err);
 	//
 	// Setup and enable the interrupt
 	//
-	gpio_install_isr_service(0);
-	gpio_isr_handler_add(SPI_SS_PIN, spi_ss_activated, NULL);
-
-	// slave.setDataMode(SPI_MODE1);
-	// slave.setMaxTransferSize(BUFFER_SIZE); // default: 4092 bytes
-	// slave.setQueueSize(QUEUE_SIZE);        // default: 1
-
-	// // begin() after setting
-	// slave.begin(HSPI, SPI_SCK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SS_PIN);
-	// slave.setUserPostSetupCbAndArg(userPostSetupCallback, NULL);
-	// slave.setUserPostTransCbAndArg(userTransactionCallback, NULL);
+	err = gpio_install_isr_service(0);
+	ESP_LOGI(TAG, "gpio_install_isr_service: %d", err);
+	//
+	// Init the SPI slave bus
+	//
+	spi_bus_config_t buscfg = {
+		.mosi_io_num = SPI_MOSI_PIN,
+		.miso_io_num = SPI_MISO_PIN,
+		.sclk_io_num = SPI_SCK_PIN,
+		.quadwp_io_num = -1,
+		.quadhd_io_num = -1,
+		.max_transfer_sz = BUFFER_SIZE,
+	};
+	spi_slave_interface_config_t slvcfg = {
+		.mode = 1,
+		.spics_io_num = SPI_SS_PIN,
+		.queue_size = 1,
+		.flags = 0,
+		.post_setup_cb = userPostSetupCallback,
+		.post_trans_cb = userTransactionCallback,
+	};
+	spi_slave_initialize(SPI2_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
+	//
+	// Finally enable the SS interrupt
+	//
+	err = gpio_isr_handler_add(SPI_SS_PIN, spi_ss_activated, NULL);
+	ESP_LOGI(TAG, "gpio_isr_handler_add: %d", err);
 }
 
 /**
@@ -193,8 +218,13 @@ void spi_create_pending_transaction(uint8_t *dma_tx_buffer, uint8_t *dma_rx_buff
 	//
 	const uint8_t *tx_buf_to_use = (dma_tx_buffer == NULL) ? zero_transaction_buffer : dma_tx_buffer;
 	uint8_t *rx_buf_to_use = (dma_rx_buffer == NULL) ? zero_transaction_buffer : dma_rx_buffer;
-	// slave.queue(tx_buf_to_use, rx_buf_to_use, BUFFER_SIZE);
-	// slave.trigger();
+	spi_slave_transaction_t transaction;
+	memset(&transaction, 0, sizeof(transaction)); // Zero out the transaction
+	transaction.length = BUFFER_SIZE * 8;         // Length in bits
+	transaction.tx_buffer = tx_buf_to_use;
+	transaction.rx_buffer = rx_buf_to_use;
+	// ESP_LOGI(TAG, "Queueing %s transaction", isTx ? "TX" : "RX");
+	ESP_ERROR_CHECK(spi_slave_queue_trans(SPI2_HOST, &transaction, portMAX_DELAY));
 }
 
 /**
