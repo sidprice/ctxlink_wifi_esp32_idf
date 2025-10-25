@@ -109,28 +109,22 @@ void IRAM_ATTR userTransactionCallback(spi_slave_transaction_t *trans)
 	//
 	gpio_set_level(nSPI_READY, 1);
 	//
-	// Check if there is input data, if so, send to spi comms task
+	// Collect the types of the Tx and Rx packets completed in
+	// this transaction.
 	//
-	if (trans->rx_buffer) {
-		uint8_t packet_type = ((uint8_t *)trans->rx_buffer)[2];
-		ESP_EARLY_LOGI(TAG, "Received data, packet  %02x", packet_type);
-		if (packet_type != PROTOCOL_PACKET_TYPE_EMPTY) {
-			//
-			// Send packet to SPI comms task
-			//
-			ESP_EARLY_LOGI(TAG, "Send input packet to SPI comms task");
-			uint8_t *message_buffer = get_next_spi_buffer();
-			memcpy(message_buffer, trans->rx_buffer, BUFFER_SIZE);
-			assert(spi_comms_queue != NULL);
-			FREERTOS_CHECK(xQueueSendFromISR(spi_comms_queue, &message_buffer, NULL));
-		} else {
-			mt_packets_queued--;
-			ESP_EARLY_LOGI(TAG, "Queue empty packet");
-			// Queue a new MT packet immediately so master can send data
-			// This will trigger userPostSetupCallback which will set nSPI_READY = 0
-			spi_queue_mt_packet();
-		}
-		ESP_EARLY_LOGI(TAG, "Post queue send");
+	uint8_t tx_packet_type = ((uint8_t *)trans->tx_buffer)[2];
+	ESP_EARLY_LOGI(TAG, "Transaction complete: tx packet type %02x", tx_packet_type);
+	uint8_t rx_packet_type = ((uint8_t *)trans->rx_buffer)[2];
+	ESP_EARLY_LOGI(TAG, "Transaction complete: rx packet type %02x", rx_packet_type);
+	if (tx_packet_type != PROTOCOL_PACKET_TYPE_EMPTY || rx_packet_type != PROTOCOL_PACKET_TYPE_EMPTY) {
+		spi_queue_mt_packet();
+		//
+		// Forward the rx packet to the SPI comms task
+		//
+		uint8_t *message_buffer = get_next_spi_buffer();
+		memcpy(message_buffer, trans->rx_buffer, BUFFER_SIZE);
+		assert(spi_comms_queue != NULL);
+		FREERTOS_CHECK(xQueueSendFromISR(spi_comms_queue, &message_buffer, NULL));
 	}
 }
 
@@ -158,18 +152,13 @@ static void IRAM_ATTR userPostSetupCallback(spi_slave_transaction_t *trans)
  */
 void spi_queue_mt_packet(void)
 {
-	if (mt_packets_queued == 0) {
-		ESP_EARLY_LOGI(TAG, "Queueing MT packet");
-		uint8_t *tx_buffer = get_next_spi_buffer();
-		uint8_t *rx_buffer = get_next_spi_buffer();
+	ESP_EARLY_LOGI(TAG, "Queueing MT packet");
+	uint8_t *tx_buffer = get_next_spi_buffer();
+	uint8_t *rx_buffer = get_next_spi_buffer();
 
-		mt_packets_queued++;
-		memset(rx_buffer, 0, BUFFER_SIZE);                    // Clear the RX buffer
-		protocol_get_mt_packet(tx_buffer);                    // Ensure the MT packet is correct
-		spi_create_pending_transaction(tx_buffer, rx_buffer); // This is a pending rx transaction
-	} else {
-		ESP_EARLY_LOGI(TAG, "Attempt to queue multiple MT packets");
-	}
+	memset(rx_buffer, 0, BUFFER_SIZE);                    // Clear the RX buffer
+	protocol_get_mt_packet(tx_buffer);                    // Ensure the MT packet is correct
+	spi_create_pending_transaction(tx_buffer, rx_buffer); // This is a pending rx transaction
 }
 
 /**
