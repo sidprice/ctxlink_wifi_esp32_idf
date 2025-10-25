@@ -184,7 +184,8 @@ void task_spi_comms(void *pvParameters)
 		case PROTOCOL_PACKET_TYPE_STATUS: {
 			ESP_LOGI(TAG, "Packet to ctxLink");
 			protocol_split(message, &data_length, &packet_type, &packet_data);
-			spi_queue_transaction(message, data_length); // Save the transaction buffer for SPI driver
+			spi_queue_transaction(
+				message, data_length + PACKET_HEADER_DATA_START); // Add the header size to the packet data length
 			break;
 		}
 		default: {
