@@ -71,7 +71,9 @@ void task_client(void *pvParameters)
 			// {
 			//     ESP_LOGI(TAG, "%02x ", net_input_buffer[i]);
 			// }
-			uint8_t *input_message = (uint8_t *)net_input_buffer;
+			// uint8_t *input_message = (uint8_t *)net_input_buffer;
+			uint8_t *input_message = get_next_spi_buffer();
+			memcpy(input_message, net_input_buffer, packed_size);
 			xQueueSend(spi_comms_queue, &input_message, 0);
 		} else if (bytes_received == 0) {
 			ESP_LOGI(TAG, "Client disconnected");

@@ -82,15 +82,14 @@ extern esp_err_t spi_slave_queue_reset(spi_host_device_t host);
  */
 void spi_queue_transaction(uint8_t *transaction_buffer, size_t length)
 {
-	uint8_t *tx_buffer = get_next_spi_buffer();
 	uint8_t *rx_buffer = get_next_spi_buffer();
 
 	// Save the transaction data to the DMA buffer
-	ESP_LOGI(TAG, "Create pending transaction type %02hx", *(transaction_buffer + 2));
-	memcpy(tx_buffer, transaction_buffer, length);
-	memset(rx_buffer, 0, BUFFER_SIZE); // Clear the RX buffer
-	spi_create_pending_transaction(tx_buffer, rx_buffer);
-	ESP_LOGI(TAG, "Pending transaction created");
+	// memcpy(tx_buffer, transaction_buffer, length);
+	ESP_LOGI(TAG, "spi_queue_transaction [ %02hx %02hx %02hx %02hx ... ]",
+		*(transaction_buffer + PACKET_HEADER_DATA_START), *(transaction_buffer + PACKET_HEADER_DATA_START + 1),
+		*(transaction_buffer + PACKET_HEADER_DATA_START + 2), *(transaction_buffer + PACKET_HEADER_DATA_START + 3));
+	spi_create_pending_transaction(transaction_buffer, rx_buffer);
 	// Signal master there's new data
 	gpio_set_level(ATTN, 0);
 	gpio_set_level(ATTN, 1);
