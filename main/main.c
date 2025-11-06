@@ -14,6 +14,9 @@
 #include "tasks/task_spi_comms.h"
 #include "tasks/task_wifi.h"
 
+#include "esp_mac.h"
+#include "mabutrace.h"
+
 static const char *TAG = "main";
 
 /**
@@ -31,9 +34,12 @@ void app_main(void)
 	esp_log_level_set("system_api", ESP_LOG_NONE);
 	esp_log_level_set("tcpip_adapter", ESP_LOG_NONE);
 
+	// esp_log_level_set("CtxLink", ESP_LOG_NONE);
+
 	nvs_flash_init();
 	vTaskDelay(pdMS_TO_TICKS(500));
 	ESP_LOGI(TAG, "CtxLink ESP32 WiFi Coprocessor, v0.1");
+
 	initCtxLink();
 	//
 	// Instantiate the preferences instance
@@ -42,12 +48,18 @@ void app_main(void)
 	//
 	// Create the SPI communications task
 	//
-	xTaskCreate(task_spi_comms, "SPI Comms", 8192, NULL, 2, NULL);
+	xTaskCreate(task_spi_comms, "SPI Comms", 8192, NULL, 4, NULL);
 	//
 	// Set up Wi-Fi connection and monitor status
 	//
 	xTaskCreate(task_wifi, "Wi-Fi", 8192, NULL, 2, &wifi_task_handle);
+
+	// Initialize MabuTrace
+	mabutrace_init();
+	mabutrace_start_server(81);
+
 	while (1) {
+		TRC();
 		vTaskDelay(pdMS_TO_TICKS(1000));
 	}
 }

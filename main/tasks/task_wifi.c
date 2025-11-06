@@ -27,6 +27,9 @@
 
 #include "ctxlink.h"
 #include "custom_assert.h"
+
+#include "mabutrace.h"
+
 //
 // Wi-Fi credentials
 //
@@ -293,7 +296,7 @@ void task_wifi(void *pvParameters)
 	(void)pvParameters; // Unused parameter
 	BaseType_t result;
 	static uint8_t *message;
-
+	TRC();
 	esp_log_level_set(TAG, ESP_LOG_NONE);
 	//
 	wifi_comms_queue = xQueueCreate(wifi_comms_queue_length,
@@ -331,7 +334,7 @@ void task_wifi(void *pvParameters)
 					// Start the GDB Server Task
 					//
 					ESP_LOGI(TAG, "Starting GDB Server Task");
-					xTaskCreate(task_wifi_server, "GDB Server", 4096, (void *)&gdb_server_params, 1, &gdb_task_handle);
+					xTaskCreate(task_wifi_server, "GDB Server", 4096, (void *)&gdb_server_params, 3, &gdb_task_handle);
 				} else {
 					ESP_LOGI(TAG, "Restart GDB Server");
 					wifi_send_server_command(PROTOCOL_PACKET_TYPE_CMD_START_GDB_SERVER);

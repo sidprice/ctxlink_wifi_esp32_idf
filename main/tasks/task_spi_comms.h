@@ -19,7 +19,9 @@
 
 extern QueueHandle_t spi_comms_queue;
 
-#define SPI_BUFFER_SIZE 2048
+//
+// TODO THis setting needs optimatization
+#define SPI_BUFFER_SIZE 1024
 
 void task_spi_comms(void *pvParameters);
 uint8_t *get_next_spi_buffer(void);

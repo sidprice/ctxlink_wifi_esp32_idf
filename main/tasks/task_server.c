@@ -22,6 +22,8 @@
 
 #include "custom_assert.h"
 
+#include "mabutrace.h"
+
 #define TAG "Server Task"
 
 QueueHandle_t server_queue;
@@ -48,15 +50,15 @@ bool configure_server(in_port_t *port, int *server_fd, struct sockaddr_in *serve
 
 	// Bind socket to address
 	if (bind(*server_fd, (struct sockaddr *)server_addr, sizeof(*server_addr)) < 0) {
-		ESP_LOGI(TAG, "Socket bind failed -> ");
-		ESP_LOGI(TAG, "%d", errno);
+		// ESP_LOGI(TAG, "Socket bind failed -> ");
+		// ESP_LOGI(TAG, "%d", errno);
 		return false;
 	}
 
 	// Listen for incoming connections
 	if (listen(*server_fd, 5) < 0) { // TODO: Test for single client operation, set to 1 or 0?
-		ESP_LOGI(TAG, "Socket listen failed -> ");
-		ESP_LOGI(TAG, "%d", errno);
+		// ESP_LOGI(TAG, "Socket listen failed -> ");
+		// ESP_LOGI(TAG, "%d", errno);
 		return false;
 	}
 	return true;
@@ -69,6 +71,7 @@ bool configure_server(in_port_t *port, int *server_fd, struct sockaddr_in *serve
  */
 void task_wifi_server(void *pvParameters)
 {
+	TRC();
 	server_task_params_t *server_params = (server_task_params_t *)pvParameters;
 	int server_fd, client_fd;
 	struct sockaddr_in server_addr, client_addr;
@@ -128,7 +131,8 @@ void task_wifi_server(void *pvParameters)
 
 					switch (packet_type) {
 					case PROTOCOL_PACKET_TYPE_TO_CLIENT: {
-						ESP_LOGI(TAG, "Packet to client");
+						// ESP_LOGI(TAG, "Packet to client [ %02hx %02hx %02hx %02hx ... ], size %d", packet_data[0],
+						// 	packet_data[1], packet_data[2], packet_data[3], packet_size);
 						while (packet_size > 0) {
 							bytes_sent = send(client_fd, packet_data, packet_size, 0);
 							if (bytes_sent < 0) {

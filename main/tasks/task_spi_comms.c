@@ -20,11 +20,16 @@
 
 #include "custom_assert.h"
 
+#include "mabutrace.h"
+
 // #include "debug.h"
 
 #define TAG "SPI Comms Task"
 
-#define SPI_BUFFER_COUNT 8
+//
+// TODO This setting needs optimatization
+//
+#define SPI_BUFFER_COUNT 64
 
 static bool tx_inflight = false;
 
@@ -40,7 +45,7 @@ DMA_ATTR uint8_t spi_buffers[SPI_BUFFER_COUNT][SPI_BUFFER_SIZE] __attribute__((a
  * @brief This is the depth of the SPI task messaging queue
  *
  */
-#define spi_comms_queue_length 10
+#define spi_comms_queue_length 32
 
 /**
  * @brief The SPI task message queue
@@ -73,10 +78,27 @@ uint8_t get_next_spi_buffer_index(void)
  * @brief Get the next spi buffer
  *
  * @return A pointer to the buffer
+ * 
+ * These buffers are used for all inter-task communications.
+ * 
+ * The network client task uses one of these buffers to send the
+ * input packet to the spi comms task, which then forwards it to the SPI driver.
+ * 
+ * Also, the Wi-Fi task uses one of these buffers to send the network information
+ * to the spi comms task, which then forwards it to ctxLink.
+ * 
+ * Data received from ctxLink via SPI is received into one of these buffers and
+ * then forwarded to the appropriate server task via its message queue. From there
+ * it is sent to the server, which forwards it to the network client.
+ * 
+ * The buffer is cleared ready for use.
+ * 
  */
 uint8_t *get_next_spi_buffer(void)
 {
-	return spi_buffers[get_next_spi_buffer_index()];
+	uint8_t *buffer = spi_buffers[get_next_spi_buffer_index()];
+	memset(buffer, 0, SPI_BUFFER_SIZE);
+	return buffer;
 }
 
 /**
@@ -120,10 +142,13 @@ void initSpiCommsQueue(void)
 void task_spi_comms(void *pvParameters)
 {
 	static uint8_t *message;
+	TRC();
 	//
 	// TODO is this a good place for this?
 	//
 	system_setup_done = true;
+
+	// esp_log_level_set(TAG, ESP_LOG_NONE);
 
 	while (true) {
 		// Wait for a message from the other tasks or spi driver
@@ -138,15 +163,18 @@ void task_spi_comms(void *pvParameters)
 		uint8_t *packet_data;
 		// Split the packet into its components
 		packet_size = protocol_split(message, &data_length, &packet_type, &packet_data);
-		ESP_LOGI(TAG, "Received packet type %d, size %d", packet_type, packet_size);
+		// ESP_LOGI(TAG, "Received packet type %d, size %d", packet_type, packet_size);
 		switch (packet_type) {
 		case PROTOCOL_PACKET_TYPE_EMPTY: {
-			ESP_LOGI(TAG, "Packet was sent to ctxLink");
+			// ESP_LOGI(TAG, "Packet was sent to ctxLink");
 			// queue_mt_packet = true;
 			break;
 		}
 		case PROTOCOL_PACKET_TYPE_TO_GDB: {
-			ESP_LOGI(TAG, "Packet to GDB");
+			// ESP_LOGI(TAG, "Packet to GDB");
+			// ESP_LOGI(TAG, "Packet to server task [ %02hx %02hx %02hx %02hx ... ]", packet_data[0], packet_data[1],
+			// 	packet_data[2], packet_data[3]);
+
 			//
 			// Send the packet to the server task
 			//
@@ -179,17 +207,20 @@ void task_spi_comms(void *pvParameters)
 		// The following cases fall-through to common code
 		// to send the received message to ctxLink
 		//
+		case PROTOCOL_PACKET_TYPE_FROM_GDB: {
+			// ESP_LOGI(TAG, "Packet from GDB [ %02hx %02hx %02hx %02hx ... ]", packet_data[0], packet_data[1],
+			// 	packet_data[2], packet_data[3]);
+		}
 		case PROTOCOL_PACKET_TYPE_NETWORK_INFO:
-		case PROTOCOL_PACKET_TYPE_FROM_GDB:
 		case PROTOCOL_PACKET_TYPE_STATUS: {
-			ESP_LOGI(TAG, "Packet to ctxLink");
+			// ESP_LOGI(TAG, "Packet to ctxLink");
 			protocol_split(message, &data_length, &packet_type, &packet_data);
 			spi_queue_transaction(
 				message, data_length + PACKET_HEADER_DATA_START); // Add the header size to the packet data length
 			break;
 		}
 		default: {
-			ESP_LOGI(TAG, "Unknown packet type %d", packet_type);
+			// ESP_LOGI(TAG, "Unknown packet type %d", packet_type);
 			break;
 		}
 		}

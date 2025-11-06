@@ -48,3 +48,7 @@ __pycache__/
 config.env
 # GDB
 .gdbinit/
+# Local test files and captures
+*.json
+*.pcap
+tracing/

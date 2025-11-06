@@ -18,7 +18,8 @@
 #include "protocol.h"
 #include "task_server.h"
 #include "task_spi_comms.h"
-// #include "debug.h"
+
+#include "mabutrace.h"
 
 #define TAG "Client Task"
 
@@ -50,6 +51,7 @@ void server_client_state_to_ctxlink(server_task_params_t *server_params, uint8_t
  */
 void task_client(void *pvParameters)
 {
+	TRC();
 	server_task_params_t *server_params = (server_task_params_t *)pvParameters;
 	int client_fd = server_params->client_fd; // Get the client file descriptor from the parameters
 	//

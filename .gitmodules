@@ -1,0 +1,3 @@
+[submodule "components/MabuTrace"]
+	path = components/MabuTrace
+	url = https://github.com/mabuware/MabuTrace.git

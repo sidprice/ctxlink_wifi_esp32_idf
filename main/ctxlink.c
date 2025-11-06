@@ -32,6 +32,8 @@
 
 #include "protocol.h"
 
+#include "mabutrace.h"
+
 #define nREADY     GPIO_NUM_8 // GPIO pin for ctxLink nReady input
 #define nSPI_READY GPIO_NUM_7 // GPIO pin for ctxLink SPI ready input
 
@@ -53,14 +55,6 @@ bool system_setup_done = false;
 static spi_slave_transaction_t transaction_1 = {0};
 static spi_slave_transaction_t transaction_2 = {0};
 static bool use_trans_1 = true;
-
-/**	
- * @brief Count of MT packets queued
- * 
- * This variable is used to limit the number of MT packets
- * queued to one at a time.
- */
-static uint8_t mt_packets_queued = 0;
 
 /**
  * @brief Reset the SPI slave queue
@@ -103,6 +97,8 @@ void spi_queue_transaction(uint8_t *transaction_buffer, size_t length)
  */
 void IRAM_ATTR userTransactionCallback(spi_slave_transaction_t *trans)
 {
+	TRC();
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 	//
 	// Negate nSPI_READY to indicate we're processing the data
 	//
@@ -112,10 +108,10 @@ void IRAM_ATTR userTransactionCallback(spi_slave_transaction_t *trans)
 	// this transaction.
 	//
 	uint8_t tx_packet_type = ((uint8_t *)trans->tx_buffer)[2];
-	ESP_EARLY_LOGI(TAG, "Transaction complete: tx packet type %02x", tx_packet_type);
 	uint8_t rx_packet_type = ((uint8_t *)trans->rx_buffer)[2];
-	ESP_EARLY_LOGI(TAG, "Transaction complete: rx packet type %02x", rx_packet_type);
+	uint8_t *rx_data = (uint8_t *)trans->rx_buffer + PACKET_HEADER_DATA_START;
 	if (tx_packet_type != PROTOCOL_PACKET_TYPE_EMPTY || rx_packet_type != PROTOCOL_PACKET_TYPE_EMPTY) {
+		// ESP_EARLY_LOGI(TAG, "userTransactionCallback");
 		spi_queue_mt_packet();
 		//
 		// Forward the rx packet to the SPI comms task
@@ -123,7 +119,10 @@ void IRAM_ATTR userTransactionCallback(spi_slave_transaction_t *trans)
 		uint8_t *message_buffer = get_next_spi_buffer();
 		memcpy(message_buffer, trans->rx_buffer, BUFFER_SIZE);
 		assert(spi_comms_queue != NULL);
-		FREERTOS_CHECK(xQueueSendFromISR(spi_comms_queue, &message_buffer, NULL));
+		FREERTOS_CHECK(xQueueSendFromISR(spi_comms_queue, &message_buffer, &xHigherPriorityTaskWoken));
+		if (xHigherPriorityTaskWoken == pdTRUE) {
+			portYIELD_FROM_ISR();
+		}
 	}
 }
 
@@ -133,9 +132,6 @@ void IRAM_ATTR userTransactionCallback(spi_slave_transaction_t *trans)
  */
 static void IRAM_ATTR userPostSetupCallback(spi_slave_transaction_t *trans)
 {
-	ESP_EARLY_LOGI(TAG, "Post setup: trans=%p, tx_buf=%p, tx_buf[2]=0x%02x", trans, trans->tx_buffer,
-		trans->tx_buffer ? ((uint8_t *)trans->tx_buffer)[2] : 0xFF);
-
 	gpio_set_level(nSPI_READY, 0);
 }
 
@@ -151,11 +147,9 @@ static void IRAM_ATTR userPostSetupCallback(spi_slave_transaction_t *trans)
  */
 void spi_queue_mt_packet(void)
 {
-	ESP_EARLY_LOGI(TAG, "Queueing MT packet");
 	uint8_t *tx_buffer = get_next_spi_buffer();
 	uint8_t *rx_buffer = get_next_spi_buffer();
 
-	memset(rx_buffer, 0, BUFFER_SIZE);                    // Clear the RX buffer
 	protocol_get_mt_packet(tx_buffer);                    // Ensure the MT packet is correct
 	spi_create_pending_transaction(tx_buffer, rx_buffer); // This is a pending rx transaction
 }
@@ -183,7 +177,7 @@ void initCtxLink(void)
 	spi_slave_interface_config_t slvcfg = {
 		.mode = 1,
 		.spics_io_num = SPI_SS_PIN,
-		.queue_size = 2, // Additional queue entry for the empty packet feature
+		.queue_size = 4,
 		.flags = 0,
 		.post_setup_cb = userPostSetupCallback,
 		.post_trans_cb = userTransactionCallback,
@@ -233,7 +227,6 @@ void spi_create_pending_transaction(uint8_t *dma_tx_buffer, uint8_t *dma_rx_buff
 	trans->length = BUFFER_SIZE * 8;
 	trans->tx_buffer = dma_tx_buffer;
 	trans->rx_buffer = dma_rx_buffer;
-
 	ESP_ERROR_CHECK(spi_slave_queue_trans(SPI_HOST, trans, portMAX_DELAY));
 }
 

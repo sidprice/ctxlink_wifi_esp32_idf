@@ -25,6 +25,13 @@ extern QueueHandle_t server_queue;
 #define SWO_SERVER_PORT  2161
 
 /**
+ * @brief Update the packet high water mark	
+ * 
+ * @param packet_size The latest packet size
+ */
+void update_packet_high_water_mark(size_t packet_size);
+
+/**
  * @brief Structure for the server task configuration
  * 
  */
